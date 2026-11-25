@@ -1,0 +1,46 @@
+# Coding model for the factory's local worker: Qwen3.6-35B-A3B on :8080.
+#
+# It takes llama.service's place on the SAME port (8080): the mini-PC has ~27 GiB of
+# unified memory, Gemma uses ~15 and this model ~17, so they can't both be loaded.
+# `Conflicts=llama.service` makes systemd stop one when the other starts, so a swap is
+# one command:
+#
+#   sudo systemctl start llama-qwen.service   # → Qwen (stops Gemma)
+#   sudo systemctl start llama.service        # → back to Gemma (stops Qwen)
+#
+# While Qwen runs, the apps' LLM calls on :8080 are answered by Qwen (llama-server
+# serves whatever it has loaded), so swap for factory sessions when nobody needs the
+# apps' AI features. There is no [Install] section on purpose: this unit never starts at
+# boot — after a reboot it's Gemma again.
+#
+# The model is a plain file in /opt/models/, downloaded with curl (see README.md) —
+# no -hf cache, no extra tools on the server.
+#
+# Install (on the mini-PC), after downloading the model:
+#   sudo cp llama-qwen.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#
+# Check: curl -s http://localhost:8080/v1/models   → id "qwen-code"
+#
+# First, cautious setup (2026-11-20): the 13.2 GB UD-IQ3_XXS file —
+# smaller than Gemma's ~15 GB, which the machine already runs daily — and a 16k
+# context. Move to UD-Q3_K_XL (16.8 GB) and -c 32768 only once this has run safely.
+#
+# Flags mirror llama.service, plus a quantised KV cache (-ctk/-ctv q8_0, needs -fa on)
+# to leave headroom next to ~17 GB of weights. --alias gives a stable model id the
+# factory checks before handing a task to the worker.
+
+[Unit]
+Description=llama.cpp coding model (Qwen3.6-35B-A3B) on :8080, swaps with llama.service
+After=network-online.target docker.service
+Wants=network-online.target
+Conflicts=llama.service
+
+[Service]
+User=llama
+WorkingDirectory=/opt/llama.cpp
+ExecStart=/opt/llama.cpp/build/bin/llama-server --model /opt/models/Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf -ngl 99 -c 16384 --cache-ram 0 -fa on -ctk q8_0 -ctv q8_0 --host 0.0.0.0 --port 8080 --parallel 1 --jinja --alias qwen-code
+# If memory runs out, the kernel kills THIS process first — never Postgres or the apps.
+OOMScoreAdjust=1000
+# No automatic restart: if it dies (e.g. out of memory), it stays down and you decide.
+Restart=no

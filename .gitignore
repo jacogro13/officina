@@ -1,0 +1,20 @@
+# The apps the factory works on are separate git repos, cloned next to factory/
+# (e.g. Famiglia/). They are never part of this repo.
+/*/
+!/.claude/
+!/factory/
+!/shared/
+!/llm/
+
+# Local settings and secrets
+.env
+.claude/settings.local.json
+.claude/worktrees/
+
+# Generated
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.venv/
+node_modules/
+factory/worker/logs/

@@ -1,0 +1,35 @@
+# Second llama.cpp instance: a VISION model on :8081, used only by the apps'
+# image-extraction paths (screenshot import in one app, photo import in another).
+# The main text LLM runs as llama.service on :8080; this is its multimodal
+# sibling. Apps point their *vision* endpoint here.
+#
+# Why a separate instance: the large text model (Gemma-4-26B) is run text-only
+# (--no-mmproj) and, with the vision projector loaded, trips a Vulkan/RADV hang
+# on the 890M iGPU (llama.cpp #24861) for large graphs. A small multimodal model
+# (Gemma-4-E4B) with a small context runs fine on the GPU, so vision lives here.
+#
+# Install (on the mini-PC):
+#   sudo cp llama-vision.service /etc/systemd/system/llama-vision.service
+#   # edit ExecStart paths/model below first
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now llama-vision.service
+#
+# Verify from a container:
+#   docker exec <app>_api curl -s http://10.100.0.1:8081/v1/models
+
+[Unit]
+Description=llama.cpp vision LLM server :8081 (image extraction)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=llama
+WorkingDirectory=/opt/llama.cpp
+# Multimodal model (mmproj auto-pulled by -hf). Small context keeps the graph
+# under the #24861 hang threshold; -ngl 99 = GPU.
+ExecStart=/opt/llama.cpp/build/bin/llama-server -hf unsloth/gemma-4-E4B-it-GGUF:Q4_K_M -ngl 99 --host 0.0.0.0 --port 8081 -c 8192 --temp 0
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

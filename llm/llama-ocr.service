@@ -1,0 +1,70 @@
+# Fourth llama.cpp instance: a document-OCR vision model on :8083, used only by
+# one app's on-demand extraction of code from book pages. The main text LLM runs
+# as llama.service on :8080, the generalist vision model as llama-vision.service
+# on :8081, and the embedding model as llama-embed.service on :8082.
+#
+# Why a separate instance (not llama-vision): code is whitespace- and
+# symbol-sensitive, and the generalist Gemma-4-E4B is mediocre at faithful OCR.
+# GLM-OCR is a tiny (0.9B) model purpose-built for document→Markdown that
+# preserves code blocks, so code extraction gets clean source instead of the
+# mangled text the PyMuPDF path produces. Only one app uses it, hence its own
+# unit rather than a shared endpoint.
+#
+# Model: GLM-OCR (GGUF from ggml-org; the mmproj projector is auto-pulled by
+# -hf). Small model + small context keeps the graph under the llama.cpp #24861
+# Vulkan/RADV hang threshold on the 890M iGPU, like llama-vision.
+#
+# Install (on the mini-PC):
+#   sudo cp llama-ocr.service /etc/systemd/system/llama-ocr.service
+#   # edit ExecStart paths/model below first
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now llama-ocr.service
+#
+# Verify from a container:
+#   docker exec <app>_api curl -s http://10.100.0.1:8083/v1/models
+
+[Unit]
+Description=llama.cpp OCR server :8083 (code extraction from book pages)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=llama
+WorkingDirectory=/opt/llama.cpp
+# Vision OCR model (mmproj auto-pulled by -hf). -ngl 99 = text layers on GPU.
+#
+# --no-mmproj-offload keeps the *vision projector* on CPU. Not a tuning
+# preference — it works around a hard GPU hang (2026-08-02). Encoding a page
+# image through the projector's Vulkan shaders wedges the 890M's compute ring:
+#
+#   slot process_mtmd: encoding mtmd batch from idx = 89, n_chunks = 1
+#   radv/amdgpu: The CS has been cancelled because the context is lost
+#   mtmd_batch_encode: error: vk::Queue::submit: ErrorDeviceLost
+#   systemd: Main process exited, code=dumped, status=11/SEGV
+#
+# plus `amdgpu: ring comp_1.3.0 timeout` + a ring reset in dmesg — llama.cpp
+# #24861. The kernel recovers the GPU, but llama-server segfaults on the lost
+# device and systemd restarts it, so the api sees the SSE stream die mid-body
+# (RemoteProtocolError) or the next page hit a dead socket (ReadError), and the
+# whole code-extraction job fails. If it still hangs with the projector on CPU,
+# go fully CPU with `-ngl 0`: GLM-OCR is 0.9B Q8_0, so CPU inference is slow but
+# usable, and it stops taking the GPU down with it (a ring reset disrupts
+# llama.service too).
+#
+# NOTE: an earlier version of this comment blamed `--parallel 2` for pushing the
+# graph over the #24861 threshold. That was wrong — the hang reproduces at
+# `--parallel 1` with `-c 16384`. The trigger is the mmproj image encode itself,
+# at any slot count; text decode on the GPU has never been implicated. Hence
+# --parallel 2 stays.
+#
+# --parallel 2 gives two continuous-batching slots so the app can OCR two book
+# pages at once — but only if the client actually sends two requests at a time
+# (a serial client leaves the second slot idle). -c is the TOTAL
+# KV cache, split evenly across slots (n_ctx / n_parallel), so 16384/2 = 8192
+# tokens per page. Raising --parallel therefore *shrinks* the per-page budget.
+ExecStart=/opt/llama.cpp/build/bin/llama-server -hf ggml-org/GLM-OCR-GGUF:Q8_0 -ngl 99 --no-mmproj-offload --host 0.0.0.0 --port 8083 -c 16384 --parallel 2 --temp 0 --alias glm-ocr
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+{
+  "name": "apps-shared-frontend",
+  "private": true,
+  "type": "module",
+  "description": "Canonical frontend files (Blueprint v2, D5) + their tests. Apps copy the files; nothing installs this package.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "openapi-fetch": "0.17.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

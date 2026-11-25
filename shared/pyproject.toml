@@ -1,0 +1,46 @@
+[project]
+name = "apps-shared"
+version = "0"
+description = "Canonical cross-app code for Apps/ (Blueprint v2, D5) and the drift check. Not installed anywhere: apps copy the files."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.128.0",
+    "pydantic>=2.11",
+    "pydantic-settings>=2.6",
+    "bcrypt>=4.0",
+    "pyjwt>=2.8",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "httpx>=0.28",
+    "sqlalchemy>=2.0",
+    "ruff>=0.8",
+    "pyright>=1.1.390",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["backend", "tools"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+
+[tool.ruff.lint.isort]
+# Simple-form layout: top-level packages are first-party (rich form: src = ["src"] instead).
+known-first-party = ["domain", "adapters", "services", "entrypoints", "settings_base", "check_drift"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+extraPaths = ["backend", "tools"]
+venvPath = "."
+venv = ".venv"

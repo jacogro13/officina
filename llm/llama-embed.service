@@ -1,0 +1,36 @@
+# Third llama.cpp instance: an EMBEDDING model on :8082, used for retrieval
+# (RAG over a book library and a mail reader). The main text LLM
+# runs as llama.service on :8080 and the vision model as llama-vision.service
+# on :8081; one llama.cpp server instance serves either generation or
+# embeddings, never both, so embeddings live here. Apps point at it via
+# LLM_EMBED_BASE_URL.
+#
+# Model: Qwen3-Embedding-0.6B — multilingual (the documents are in English, Italian
+# and German), ~640 MB at Q8, 32k context, strong MTEB scores.
+# --embedding switches the server to /v1/embeddings mode.
+#
+# Install (on the mini-PC):
+#   sudo cp llama-embed.service /etc/systemd/system/llama-embed.service
+#   # edit ExecStart paths/model below first
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now llama-embed.service
+#
+# Verify from a container:
+#   docker exec <app>_api curl -s http://10.100.0.1:8082/v1/models
+
+[Unit]
+Description=llama.cpp embedding server :8082 (RAG retrieval)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=llama
+WorkingDirectory=/opt/llama.cpp
+# Embedding model (auto-pulled by -hf). Tiny model: CPU would do, but -ngl 99
+# keeps latency negligible and the VRAM cost is small.
+ExecStart=/opt/llama.cpp/build/bin/llama-server -hf Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0 --embedding -ngl 99 --host 0.0.0.0 --port 8082 -c 4096 --alias qwen3-embedding
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

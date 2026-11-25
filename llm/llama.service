@@ -1,0 +1,42 @@
+# Sample systemd unit: llama.cpp OpenAI-compatible server on the mini-PC host.
+#
+# It runs on the host, not in Docker. App containers reach it through the gateway of
+# their Docker network (shared_network, pinned to 10.100.0.0/24, gateway 10.100.0.1)
+# at http://10.100.0.1:8080 via LLM_BASE_URL.
+#
+# Install (on the mini-PC):
+#   sudo cp llama.service /etc/systemd/system/llama.service
+#   # edit ExecStart paths below first
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now llama.service
+#
+# Verify (from the host):    curl http://10.100.0.1:8080/v1/models
+# Verify (from a container): docker exec <app>_api python -c \
+#   "import urllib.request; print(urllib.request.urlopen('http://10.100.0.1:8080/v1/models').status)"
+
+# The coding model runs instead of this one on the same port: see llama-qwen.service.
+
+[Unit]
+Description=llama.cpp OpenAI-compatible LLM server (shared by all apps)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=llama
+# --host 0.0.0.0 makes it reachable on the LAN as well as from containers via the
+# shared_network gateway (10.100.0.1). Bind to 10.100.0.1 only if you want it NOT
+# exposed on the LAN. Verify the binary path and --n-gpu-layers (-ngl) for your box.
+# --cache-ram bounds llama.cpp's prompt cache (KV-state reuse across requests).
+# It defaults to 8192 MiB, which on this 28 GiB unified-memory APU stacks on top
+# of the model (~15 GiB) + the 32k-context KV and can OOM-kill the server
+# (SIGKILL) under a heavy batch job like summarising a whole book chapter by chapter — especially
+# with long generations. The summariser sends a different prompt per chapter, so
+# prefix-reuse is near zero and the cache buys almost nothing here: disable it
+# with --cache-ram 0 (or cap it small, e.g. 2048, to keep some reuse for chat).
+WorkingDirectory=/opt/llama.cpp
+ExecStart=/opt/llama.cpp/build/bin/llama-server -hf unsloth/gemma-4-26B-A4B-it-GGUF:UD-Q4_K_XL -ngl 99 -c 32768 --cache-ram 0 -fa on --no-mmproj --host 0.0.0.0 --port 8080 --parallel 1 --jinja
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
